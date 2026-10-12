@@ -18,3 +18,7 @@ local.properties
 *.keystore
 keystore.properties
 /.idea/
+# 图标设计源文件（SVG/PNG 母版），不提交进版本库
+/assets/
+# 误入项目根目录的构建产物残留
+/app/release/
