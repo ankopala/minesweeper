@@ -1,6 +1,7 @@
 package com.ankopala.minesweeper
 
 import android.os.SystemClock
+import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,12 +24,12 @@ enum class Difficulty(
     val rows: Int,
     val cols: Int,
     val mines: Int,
-    val label: String
+    @StringRes val label: Int
 ) {
-    STANDARD(10, 22, 33, "标准"),
-    EASY(9, 9, 10, "初级"),
-    MEDIUM(16, 16, 40, "中级"),
-    EXPERT(16, 30, 99, "专家")
+    STANDARD(10, 22, 33, R.string.difficulty_standard),
+    EASY(9, 9, 10, R.string.difficulty_easy),
+    MEDIUM(16, 16, 40, R.string.difficulty_medium),
+    EXPERT(16, 30, 99, R.string.difficulty_expert)
 }
 
 // 一个格子的三种状态
@@ -47,21 +48,22 @@ data class Cell(
 
 // 游戏整体状态
 enum class GameStatus {
-    PLAYING,
-    WON,
-    LOST
+    PLAYING,       // 进行中
+    WON,           // 已胜利
+    LOST,          // 已判负
+    PENDING_LOSS   // 踩雷但尚未确认（等待玩家选择「撤回」或「认输」）
 }
 
 // 插旗方式
-enum class FlagMode(val label: String) {
-    LONG_PRESS("长按插旗"),      // 长按格子插旗
-    TOGGLE_BUTTON("模式切换按钮") // 顶部切换「插旗/翻开」，单击格子执行当前动作
+enum class FlagMode(@StringRes val label: Int) {
+    LONG_PRESS(R.string.flag_long_press),      // 长按格子插旗
+    TOGGLE_BUTTON(R.string.flag_toggle_button) // 顶部切换「插旗/翻开」，单击格子执行当前动作
 }
 
 // 屏幕方向模式
-enum class OrientationMode(val label: String) {
-    PORTRAIT("固定竖屏"),  // 锁定竖屏
-    AUTO("允许旋转")       // 跟随系统方向旋转
+enum class OrientationMode(@StringRes val label: Int) {
+    PORTRAIT(R.string.orientation_portrait),  // 锁定竖屏
+    AUTO(R.string.orientation_auto)           // 跟随系统方向旋转
 }
 
 class MinesweeperGame(initialDifficulty: Difficulty) {
@@ -184,6 +186,8 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
         minesPlaced = false
         startTime = 0
         elapsedSeconds = 0
+        pendingMineRow = -1
+        pendingMineCol = -1
     }
 
     private fun index(row: Int, col: Int) = row * cols + col
@@ -236,6 +240,13 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
     // 是否已经布过雷（第一次翻开前都是 false）
     private var minesPlaced = false
 
+    // 悔棋开关：开启时踩雷不立即判负，而是进入 PENDING_LOSS 等待玩家选择「撤回」或「认输」。
+    var undoEnabled by mutableStateOf(true)
+
+    // 待定踩雷的那一格（row, col）。仅在 status == PENDING_LOSS 时非空。
+    private var pendingMineRow = -1
+    private var pendingMineCol = -1
+
     /** 翻开一个格子。返回翻开后是否踩到雷（供 UI 决定后续处理）。 */
     fun reveal(row: Int, col: Int): Boolean {
         if (status != GameStatus.PLAYING) return false
@@ -252,9 +263,17 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
         }
 
         if (board[i].isMine) {
-            // 踩雷：翻开所有雷，判负
+            // 踩雷：
+            // - 悔棋开启 → 翻开这一格，进入 PENDING_LOSS 等待「撤回/认输」；
+            // - 悔棋关闭 → 经典行为，翻开所有雷并判负。
             board[i] = board[i].copy(state = CellState.REVEALED)
-            status = GameStatus.LOST
+            if (undoEnabled) {
+                pendingMineRow = row
+                pendingMineCol = col
+                status = GameStatus.PENDING_LOSS
+            } else {
+                status = GameStatus.LOST
+            }
             return true
         }
 
@@ -319,6 +338,8 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
 
         // 翻开周围所有未插旗、未翻开的格子；踩到雷则判负
         var hitMine = false
+        var hitRow = -1
+        var hitCol = -1
         for (dr in -1..1) {
             for (dc in -1..1) {
                 if (dr == 0 && dc == 0) continue
@@ -329,7 +350,11 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
                 if (board[ni].state == CellState.HIDDEN) {
                     if (board[ni].isMine) {
                         board[ni] = board[ni].copy(state = CellState.REVEALED)
-                        hitMine = true
+                        if (!hitMine) {
+                            hitMine = true
+                            hitRow = r
+                            hitCol = c
+                        }
                     } else {
                         floodFill(r, c)
                     }
@@ -337,7 +362,13 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
             }
         }
         if (hitMine) {
-            status = GameStatus.LOST
+            if (undoEnabled) {
+                pendingMineRow = hitRow
+                pendingMineCol = hitCol
+                status = GameStatus.PENDING_LOSS
+            } else {
+                status = GameStatus.LOST
+            }
         } else {
             checkWin()
         }
@@ -362,6 +393,40 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
         }
     }
 
+    /**
+     * 悔棋：把待定踩雷的那一格恢复成未翻开，游戏从 PENDING_LOSS 回到 PLAYING。
+     * 仅当 status == PENDING_LOSS 时有效。
+     */
+    fun undoLastMine() {
+        if (status != GameStatus.PENDING_LOSS) return
+        if (!inBounds(pendingMineRow, pendingMineCol)) {
+            status = GameStatus.LOST
+            return
+        }
+        val i = index(pendingMineRow, pendingMineCol)
+        board[i] = board[i].copy(state = CellState.HIDDEN)
+        pendingMineRow = -1
+        pendingMineCol = -1
+        status = GameStatus.PLAYING
+    }
+
+    /**
+     * 认输：确认踩雷，进入经典判负行为（翻开所有雷，置 LOST）。
+     * 仅当 status == PENDING_LOSS 时有效。
+     */
+    fun confirmLoss() {
+        if (status != GameStatus.PENDING_LOSS) return
+        // 翻开所有未插旗的雷，还原经典「踩雷揭示全图」的效果
+        for (i in board.indices) {
+            if (board[i].isMine && board[i].state != CellState.FLAGGED) {
+                board[i] = board[i].copy(state = CellState.REVEALED)
+            }
+        }
+        pendingMineRow = -1
+        pendingMineCol = -1
+        status = GameStatus.LOST
+    }
+
     private fun checkWin() {
         // 翻开的非雷格数量 == 总数 - 雷数，即胜利
         if (revealedCount == rows * cols - mineCount) {
@@ -381,4 +446,72 @@ class MinesweeperGame(initialDifficulty: Difficulty) {
     }
 
     fun cell(row: Int, col: Int): Cell = board[index(row, col)]
+
+    /**
+     * 把当前棋局序列化成一个字符串，供「切换语言导致 Activity 重建」时保存/恢复棋局。
+     * 用「|」分隔字段，board 的每格用「,」分隔（isMine,adjacent,stateOrdinal）。
+     */
+    fun snapshot(): String {
+        val sb = StringBuilder()
+        sb.append(difficulty.name).append('|')
+        sb.append(isLandscape).append('|')
+        sb.append(standardRows).append('|')
+        sb.append(standardCols).append('|')
+        sb.append(status.name).append('|')
+        sb.append(flagsUsed).append('|')
+        sb.append(revealedCount).append('|')
+        sb.append(startTime).append('|')
+        sb.append(elapsedSeconds).append('|')
+        sb.append(minesPlaced).append('|')
+        sb.append(pendingMineRow).append('|')
+        sb.append(pendingMineCol).append('|')
+        sb.append(undoEnabled).append('|')
+        sb.append(board.size).append('|')
+        board.forEachIndexed { i, c ->
+            if (i > 0) sb.append(',')
+            sb.append(if (c.isMine) 1 else 0).append(';')
+                .append(c.adjacentMines).append(';')
+                .append(c.state.ordinal)
+        }
+        return sb.toString()
+    }
+
+    /**
+     * 从 snapshot() 生成的字符串恢复棋局。解析失败则回退到 newGame()。
+     */
+    fun restore(s: String) {
+        try {
+            val parts = s.split('|')
+            if (parts.size < 14) { newGame(); return }
+            difficulty = Difficulty.valueOf(parts[0])
+            isLandscape = parts[1].toBoolean()
+            standardRows = parts[2].toInt()
+            standardCols = parts[3].toInt()
+            status = GameStatus.valueOf(parts[4])
+            flagsUsed = parts[5].toInt()
+            revealedCount = parts[6].toInt()
+            startTime = parts[7].toLong()
+            elapsedSeconds = parts[8].toLong()
+            minesPlaced = parts[9].toBoolean()
+            pendingMineRow = parts[10].toInt()
+            pendingMineCol = parts[11].toInt()
+            undoEnabled = parts[12].toBoolean()
+            val size = parts[13].toInt()
+            board.clear()
+            val cells = parts[14].split(',')
+            for (i in 0 until size) {
+                val f = cells[i].split(';')
+                board.add(
+                    Cell(
+                        isMine = f[0] == "1",
+                        adjacentMines = f[1].toInt(),
+                        state = CellState.entries[f[2].toInt()]
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            // 解析失败（版本不兼容等），安全回退到新局
+            newGame()
+        }
+    }
 }

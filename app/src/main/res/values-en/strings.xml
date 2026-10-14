@@ -1,0 +1,57 @@
+<resources>
+    <string name="app_name">minesweeper</string>
+
+    <!-- Difficulty -->
+    <string name="difficulty_standard">Standard</string>
+    <string name="difficulty_easy">Easy</string>
+    <string name="difficulty_medium">Medium</string>
+    <string name="difficulty_expert">Expert</string>
+
+    <!-- Flag mode -->
+    <string name="flag_long_press">Long press</string>
+    <string name="flag_toggle_button">Toggle button</string>
+
+    <!-- Orientation -->
+    <string name="orientation_portrait">Portrait only</string>
+    <string name="orientation_auto">Auto rotate</string>
+
+    <!-- Settings dialog -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_done">Done</string>
+    <string name="settings_difficulty">Difficulty</string>
+    <string name="settings_flag_mode">Flag mode</string>
+    <string name="settings_orientation">Orientation</string>
+    <string name="settings_language">Language</string>
+
+    <!-- Settings toggles -->
+    <string name="timer_visible_title">Show timer</string>
+    <string name="timer_visible_subtitle">Show elapsed time in the top bar</string>
+    <string name="timer_enabled_title">Record best time</string>
+    <string name="timer_enabled_subtitle">Save the best time for each difficulty</string>
+    <string name="undo_title">Undo</string>
+    <string name="undo_subtitle">Ask to undo or give up when you hit a mine</string>
+
+    <!-- Language options -->
+    <string name="language_chinese">中文</string>
+    <string name="language_english">English</string>
+
+    <!-- Restart confirm -->
+    <string name="restart_title">Restart</string>
+    <string name="restart_message">The game is not finished yet. Abandon it and start a new one?</string>
+    <string name="restart_confirm">Restart</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Mine hit confirm -->
+    <string name="mine_hit_title">You hit a mine!</string>
+    <string name="mine_hit_message">Undo this step, or give up and end the game?</string>
+    <string name="undo">Undo</string>
+    <string name="give_up">Give up</string>
+
+    <!-- Win dialog -->
+    <string name="win_title">🎉 You win!</string>
+    <string name="win_difficulty">Difficulty: %1$s</string>
+    <string name="win_time">Time: %1$s</string>
+    <string name="win_new_best">🏆 New best time!</string>
+    <string name="win_best_time">Best time: %1$s</string>
+    <string name="win_ok">OK</string>
+</resources>

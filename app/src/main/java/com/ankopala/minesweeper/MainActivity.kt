@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -28,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -38,11 +40,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,13 +55,32 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ankopala.minesweeper.ui.theme.MinesweeperTheme
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        val prefs = newBase.getSharedPreferences("minesweeper_settings", 0)
+        // 语言解析规则：
+        // - 玩家手动选过语言（prefs 里有 app_language）→ 永远用玩家的选择；
+        // - 从没选过（app_language 不存在）→ 首次跟随系统语言。
+        val saved = prefs.getString("app_language", null)
+        val lang = saved?.let { AppLanguage.valueOf(it) }
+            ?: if (newBase.resources.configuration.locales[0].language == "zh")
+                AppLanguage.CHINESE else AppLanguage.ENGLISH
+        val tag = if (lang == AppLanguage.ENGLISH) "en" else "zh"
+        val locale = java.util.Locale.forLanguageTag(tag)
+        java.util.Locale.setDefault(locale)
+        val config = android.content.res.Configuration(newBase.resources.configuration)
+        config.setLocale(locale)
+        super.attachBaseContext(newBase.createConfigurationContext(config))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -80,6 +103,28 @@ private val numberColors = listOf(
     Color(0xFF212121), // 7 黑
     Color(0xFF757575), // 8 灰
 )
+
+// 语言选项：CHINESE=中文，ENGLISH=English
+enum class AppLanguage(@StringRes val label: Int) {
+    CHINESE(R.string.language_chinese),
+    ENGLISH(R.string.language_english)
+}
+
+// 携带「当前语言 locale」的 context。切换语言时更新它，所有 str() 立即读新语言文案。
+// 用 staticCompositionLocalOf：仅切语言时变化，变化时触发依赖它的所有节点重组。
+private val LocalLocalizedContext = staticCompositionLocalOf<android.content.Context> {
+    error("LocalLocalizedContext 未注入")
+}
+
+// 替代 stringResource 的取串函数：显式用当前语言 locale 的 context 取字符串，
+// 绕开 Compose stringResource 对 locale 的隐式缓存，实现就地切换。
+@Composable
+private fun str(@StringRes id: Int): String =
+    LocalLocalizedContext.current.getString(id)
+
+@Composable
+private fun str(@StringRes id: Int, vararg args: Any): String =
+    LocalLocalizedContext.current.getString(id, *args)
 
 @Composable
 fun MinesweeperScreen() {
@@ -111,6 +156,20 @@ fun MinesweeperScreen() {
             OrientationMode.valueOf(prefs.getString("orientation_mode", OrientationMode.PORTRAIT.name)!!)
         )
     }
+    // 悔棋开关（持久化，默认开启）：开启时踩雷不立即判负，而是弹「撤回/认输」确认框
+    var undoEnabled by remember {
+        mutableStateOf(prefs.getBoolean("undo_enabled", true))
+    }
+    // 语言选项：优先读玩家手动选过的值；没选过则首次跟随系统语言。
+    // 初始值来自 prefs，切换后由 LocalAppLanguage 驱动重组；此 state 仅作「当前显示值」的缓存。
+    var appLanguage by remember {
+        mutableStateOf(
+            prefs.getString("app_language", null)
+                ?.let { AppLanguage.valueOf(it) }
+                ?: if (context.resources.configuration.locales[0].language == "zh")
+                    AppLanguage.CHINESE else AppLanguage.ENGLISH
+        )
+    }
     // 胜利结算弹窗
     var showResult by remember { mutableStateOf(false) }
     var lastTime by remember { mutableStateOf(0L) }
@@ -119,6 +178,16 @@ fun MinesweeperScreen() {
     var showRestartConfirm by remember { mutableStateOf(false) }
 
     val game = remember { MinesweeperGame(Difficulty.STANDARD) }
+
+    // 初始化：把持久化的悔棋开关同步到逻辑层（remember 首次只读一次）
+    game.undoEnabled = undoEnabled
+
+    // 兜底：若存在棋局快照（例如因配置变更导致 Activity 重建），恢复它，避免丢当前局。
+    val savedSnapshot = prefs.getString("game_snapshot", null)
+    if (savedSnapshot != null) {
+        game.restore(savedSnapshot)
+        prefs.edit().remove("game_snapshot").apply()
+    }
 
     // 一次性迁移：老版本第三档存档 key 从 best_HARD 改成 best_EXPERT
     if (prefs.contains("best_HARD")) {
@@ -192,6 +261,20 @@ fun MinesweeperScreen() {
         prefs.edit().putString("orientation_mode", mode.name).apply()
     }
 
+    fun setUndoEnabled(enabled: Boolean) {
+        undoEnabled = enabled
+        game.undoEnabled = enabled
+        prefs.edit().putBoolean("undo_enabled", enabled).apply()
+    }
+
+    fun setAppLanguage(lang: AppLanguage) {
+        if (appLanguage == lang) return
+        appLanguage = lang
+        prefs.edit().putString("app_language", lang.name).apply()
+        // 就地切换：只更新 appLanguage 状态，Compose 通过 LocalAppLanguage 重组，界面当场变。
+        // 不再 recreate，因此不会丢棋局、不会关闭设置对话框、也不会闪屏。
+    }
+
     fun bestTime(d: Difficulty): Long? {
         val v = prefs.getLong("best_${d.name}", -1L)
         return if (v < 0) null else v
@@ -209,6 +292,17 @@ fun MinesweeperScreen() {
         showResult = true
     }
 
+    // 就地切换语言的关键：根据当前 appLanguage 构造 locale 已覆盖的 context。
+    // str() 直接用它取字符串，appLanguage 一变 → context 变 → 所有文案当场用新 locale 解析。
+    val localizedContext = remember(appLanguage) {
+        val locale = if (appLanguage == AppLanguage.ENGLISH)
+            Locale.forLanguageTag("en") else Locale.forLanguageTag("zh")
+        val config = Configuration(context.resources.configuration)
+        config.setLocale(locale)
+        context.createConfigurationContext(config)
+    }
+
+    CompositionLocalProvider(LocalLocalizedContext provides localizedContext) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -259,13 +353,13 @@ fun MinesweeperScreen() {
     if (showSettings) {
         AlertDialog(
             onDismissRequest = { showSettings = false },
-            title = { Text("设置") },
+            title = { Text(str(R.string.settings_title)) },
             text = {
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState())
                 ) {
                     // 难度（从主界面挪到这里）
-                    Text("难度", style = MaterialTheme.typography.titleSmall)
+                    Text(str(R.string.settings_difficulty), style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(4.dp))
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         Difficulty.entries.forEachIndexed { index, d ->
@@ -282,14 +376,20 @@ fun MinesweeperScreen() {
                                     count = Difficulty.entries.size
                                 )
                             ) {
-                                Text(d.label)
+                                Text(
+                                    text = str(d.label),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
 
                     // 插旗方式
-                    Text("插旗方式", style = MaterialTheme.typography.titleSmall)
+                    Text(str(R.string.settings_flag_mode), style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(4.dp))
                     FlagMode.entries.forEach { mode ->
                         Row(
@@ -302,7 +402,7 @@ fun MinesweeperScreen() {
                                 selected = flagMode == mode,
                                 onClick = { setFlagMode(mode) }
                             )
-                            Text(mode.label)
+                            Text(str(mode.label))
                         }
                     }
                     Spacer(Modifier.height(12.dp))
@@ -315,9 +415,9 @@ fun MinesweeperScreen() {
                             .combinedClickable(onClick = { setTimerVisible(!timerVisible) })
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("显示计时器")
+                            Text(str(R.string.timer_visible_title))
                             Text(
-                                "在顶栏显示实时用时",
+                                str(R.string.timer_visible_subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -335,9 +435,9 @@ fun MinesweeperScreen() {
                             .combinedClickable(onClick = { setTimerEnabled(!timerEnabled) })
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("记录最佳成绩")
+                            Text(str(R.string.timer_enabled_title))
                             Text(
-                                "胜利后记录用时，并保存该难度历史最佳",
+                                str(R.string.timer_enabled_subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -347,10 +447,30 @@ fun MinesweeperScreen() {
                             onCheckedChange = { setTimerEnabled(it) }
                         )
                     }
+                    // 悔棋开关
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(onClick = { setUndoEnabled(!undoEnabled) })
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(str(R.string.undo_title))
+                            Text(
+                                str(R.string.undo_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = undoEnabled,
+                            onCheckedChange = { setUndoEnabled(it) }
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
 
                     // 屏幕方向
-                    Text("屏幕方向", style = MaterialTheme.typography.titleSmall)
+                    Text(str(R.string.settings_orientation), style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(4.dp))
                     OrientationMode.entries.forEach { mode ->
                         Row(
@@ -363,14 +483,33 @@ fun MinesweeperScreen() {
                                 selected = orientationMode == mode,
                                 onClick = { setOrientationMode(mode) }
                             )
-                            Text(mode.label)
+                            Text(str(mode.label))
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+
+                    // 语言
+                    Text(str(R.string.settings_language), style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    AppLanguage.entries.forEach { lang ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(onClick = { setAppLanguage(lang) })
+                        ) {
+                            RadioButton(
+                                selected = appLanguage == lang,
+                                onClick = { setAppLanguage(lang) }
+                            )
+                            Text(str(lang.label))
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showSettings = false }) {
-                    Text("完成")
+                    Text(str(R.string.settings_done))
                 }
             }
         )
@@ -380,16 +519,41 @@ fun MinesweeperScreen() {
     if (showRestartConfirm) {
         AlertDialog(
             onDismissRequest = { showRestartConfirm = false },
-            title = { Text("重新开始") },
-            text = { Text("当前游戏尚未结束，确定要放弃并开启新游戏吗？") },
+            title = { Text(str(R.string.restart_title)) },
+            text = { Text(str(R.string.restart_message)) },
             confirmButton = {
                 TextButton(onClick = { newGame() }) {
-                    Text("重新开始")
+                    Text(str(R.string.restart_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRestartConfirm = false }) {
-                    Text("取消")
+                    Text(str(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 踩雷确认弹窗：悔棋开启时，踩雷进入 PENDING_LOSS，弹「撤回/认输」
+    if (game.status == GameStatus.PENDING_LOSS) {
+        AlertDialog(
+            onDismissRequest = { /* 不响应外部关闭：必须二选一 */ },
+            title = { Text(str(R.string.mine_hit_title)) },
+            text = { Text(str(R.string.mine_hit_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { game.undoLastMine() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF2E7D32))
+                ) {
+                    Text(str(R.string.undo))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { game.confirmLoss() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFC62828))
+                ) {
+                    Text(str(R.string.give_up))
                 }
             }
         )
@@ -400,19 +564,19 @@ fun MinesweeperScreen() {
         val best = bestTime(difficulty)
         AlertDialog(
             onDismissRequest = { showResult = false },
-            title = { Text("🎉 恭喜通关！") },
+            title = { Text(str(R.string.win_title)) },
             text = {
                 Column {
-                    Text("难度：${difficulty.label}")
+                    Text(str(R.string.win_difficulty, str(difficulty.label)))
                     Spacer(Modifier.height(8.dp))
-                    Text("本次用时：${formatTime(lastTime)}")
+                    Text(str(R.string.win_time, formatTime(lastTime)))
                     if (newBest) {
                         Spacer(Modifier.height(4.dp))
-                        Text("🏆 新纪录！", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
+                        Text(str(R.string.win_new_best), color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold)
                     } else if (best != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "历史最佳：${formatTime(best)}",
+                            str(R.string.win_best_time, formatTime(best)),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -421,11 +585,12 @@ fun MinesweeperScreen() {
             },
             confirmButton = {
                 TextButton(onClick = { showResult = false }) {
-                    Text("好的")
+                    Text(str(R.string.win_ok))
                 }
             }
         )
     }
+    } // CompositionLocalProvider(LocalContext) 闭合
 }
 
 // ===== 顶栏状态条 =====
@@ -510,6 +675,7 @@ private fun smiley(status: GameStatus): String = when (status) {
     GameStatus.PLAYING -> "🙂"
     GameStatus.WON -> "😎"
     GameStatus.LOST -> "😵"
+    GameStatus.PENDING_LOSS -> "😵"
 }
 
 // 顶栏小按钮

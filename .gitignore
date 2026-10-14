@@ -22,3 +22,9 @@ keystore.properties
 /assets/
 # 误入项目根目录的构建产物残留
 /app/release/
+
+# Kotlin 编译器会话/错误缓存（IDE 与命令行 gradle 生成）
+/.kotlin/
+
+# 构建产物 APK（不应入库，release 走 GitHub Releases）
+*.apk

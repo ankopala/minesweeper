@@ -1,3 +1,57 @@
 <resources>
     <string name="app_name">minesweeper</string>
+
+    <!-- 难度 -->
+    <string name="difficulty_standard">标准</string>
+    <string name="difficulty_easy">初级</string>
+    <string name="difficulty_medium">中级</string>
+    <string name="difficulty_expert">专家</string>
+
+    <!-- 插旗方式 -->
+    <string name="flag_long_press">长按插旗</string>
+    <string name="flag_toggle_button">模式切换按钮</string>
+
+    <!-- 屏幕方向 -->
+    <string name="orientation_portrait">固定竖屏</string>
+    <string name="orientation_auto">允许旋转</string>
+
+    <!-- 设置对话框 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_done">完成</string>
+    <string name="settings_difficulty">难度</string>
+    <string name="settings_flag_mode">插旗方式</string>
+    <string name="settings_orientation">屏幕方向</string>
+    <string name="settings_language">语言</string>
+
+    <!-- 设置开关项 -->
+    <string name="timer_visible_title">显示计时器</string>
+    <string name="timer_visible_subtitle">在顶栏显示实时用时</string>
+    <string name="timer_enabled_title">记录最佳成绩</string>
+    <string name="timer_enabled_subtitle">胜利后记录用时，并保存该难度历史最佳</string>
+    <string name="undo_title">悔棋</string>
+    <string name="undo_subtitle">踩雷时弹「撤回/认输」确认，可撤销误触的雷</string>
+
+    <!-- 语言选项 -->
+    <string name="language_chinese">中文</string>
+    <string name="language_english">English</string>
+
+    <!-- 重开确认 -->
+    <string name="restart_title">重新开始</string>
+    <string name="restart_message">当前游戏尚未结束，确定要放弃并开启新游戏吗？</string>
+    <string name="restart_confirm">重新开始</string>
+    <string name="cancel">取消</string>
+
+    <!-- 踩雷确认 -->
+    <string name="mine_hit_title">踩到地雷了！</string>
+    <string name="mine_hit_message">要撤回这一步，还是认输结束本局？</string>
+    <string name="undo">撤回</string>
+    <string name="give_up">认输</string>
+
+    <!-- 胜利结算 -->
+    <string name="win_title">🎉 恭喜通关！</string>
+    <string name="win_difficulty">难度：%1$s</string>
+    <string name="win_time">本次用时：%1$s</string>
+    <string name="win_new_best">🏆 新纪录！</string>
+    <string name="win_best_time">历史最佳：%1$s</string>
+    <string name="win_ok">好的</string>
 </resources>
